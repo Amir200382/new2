@@ -1,0 +1,159 @@
+import hashlib
+import json
+import os
+from datetime import datetime
+
+class User:
+    def __init__(self, username, password_hash):
+        self.username = username
+        self.password_hash = password_hash
+        self.inbox = []
+        self.sent = []
+
+    def send_email(self, to_user, subject, body, reply_to=None, cc=None):
+        email = {
+            'from': self.username,
+            'to': to_user.username,
+            'subject': subject,
+            'body': body,
+            'timestamp': str(datetime.now()),
+            'reply_to': reply_to,
+            'cc': [user.username for user in cc] if cc else []
+        }
+        self.sent.append(email)
+        to_user.inbox.append(email)
+        if cc:
+            for cc_user in cc:
+                cc_user.inbox.append(email)
+
+    def view_emails(self):
+        return {
+            'inbox': self.inbox,
+            'sent': self.sent
+        }
+
+    def change_password(self, old_password, new_password):
+        if hashlib.sha256(old_password.encode()).hexdigest() == self.password_hash:
+            self.password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            return True
+        return False
+
+class Admin(User):
+    def __init__(self, username, password_hash):
+        super().__init__(username, password_hash)
+        self.users = {}
+
+    def add_user(self, username, password):
+        if username in self.users:
+            print("User already exists.")
+            return
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        self.users[username] = User(username, password_hash)
+        print(f"User {username} added successfully.")
+
+    def save_data(self, filepath='data.json'):
+        data = {
+            'users': {username: user.__dict__ for username, user in self.users.items()},
+            'admin': self.__dict__
+        }
+        with open(filepath, 'w') as f:
+            json.dump(data, f)
+
+    def load_data(self, filepath='data.json'):
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+                self.users = {username: User(**user_data) for username, user_data in data['users'].items()}
+                admin_data = data['admin']
+                self.username = admin_data['username']
+                self.password_hash = admin_data['password_hash']
+                self.inbox = admin_data['inbox']
+                self.sent = admin_data['sent']
+
+def main():
+    admin = Admin('admin', hashlib.sha256('admin_pass'.encode()).hexdigest())
+    admin.load_data()
+
+    while True:
+        print("1. Login")
+        print("2. Exit")
+        choice = input("Enter choice: ")
+
+        if choice == '1':
+            username = input("Username: ")
+            password = input("Password: ")
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+            if username == 'admin' and password_hash == admin.password_hash:
+                logged_in_user = admin
+            elif username in admin.users and admin.users[username].password_hash == password_hash:
+                logged_in_user = admin.users[username]
+            else:
+                print("Invalid credentials")
+                continue
+
+            while True:
+                if logged_in_user.username == 'admin':
+                    print("1. Send Email")
+                    print("2. View Emails")
+                    print("3. Change Password")
+                    print("4. Add User")
+                    print("5. Logout")
+                else:
+                    print("1. Send Email")
+                    print("2. View Emails")
+                    print("3. Change Password")
+                    print("4. Logout")
+
+                user_choice = input("Enter choice: ")
+
+                if user_choice == '1':
+                    to_username = input("To: ")
+                    subject = input("Subject: ")
+                    body = input("Body: ")
+                    reply_to = input("Reply to (optional): ")
+                    cc_usernames = input("CC (optional, comma separated): ").split(',')
+                    if to_username in admin.users:
+                        to_user = admin.users[to_username]
+                        cc_users = [admin.users[cc.strip()] for cc in cc_usernames if cc.strip() in admin.users]
+                        logged_in_user.send_email(to_user, subject, body, reply_to, cc_users)
+                        print("Email sent successfully")
+                    else:
+                        print("Recipient not found")
+
+                elif user_choice == '2':
+                    emails = logged_in_user.view_emails()
+                    print("Inbox:")
+                    for email in emails['inbox']:
+                        print(email)
+                    print("Sent:")
+                    for email in emails['sent']:
+                        print(email)
+
+                elif user_choice == '3':
+                    old_password = input("Old Password: ")
+                    new_password = input("New Password: ")
+                    confirm_password = input("Confirm New Password: ")
+
+                    if new_password == confirm_password:
+                        if logged_in_user.change_password(old_password, new_password):
+                            print("Password changed successfully")
+                        else:
+                            print("Old password incorrect")
+                    else:
+                        print("New passwords do not match")
+
+                elif user_choice == '4' and logged_in_user.username == 'admin':
+                    new_username = input("New User Username: ")
+                    new_password = input("New User Password: ")
+                    logged_in_user.add_user(new_username, new_password)
+
+                elif user_choice == '4' and logged_in_user.username != 'admin' or user_choice == '5':
+                    break
+
+        elif choice == '2':
+            admin.save_data()
+            break
+
+if __name__ == "__main__":
+    main()
